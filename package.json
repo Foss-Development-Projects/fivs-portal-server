@@ -1,0 +1,19 @@
+{
+  "name": "fivs-partner-portal",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node --watch ./index.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "chalk": "^4.1.2",
+    "cors": "^2.8.6",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "multer": "^2.0.2",
+    "mysql2": "^3.16.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.10"
+  }
+}
