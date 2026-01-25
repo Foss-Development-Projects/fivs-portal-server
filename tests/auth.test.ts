@@ -1,6 +1,6 @@
 import { describe, it, test, expect, beforeAll, afterAll } from '@jest/globals';
 import request from 'supertest';
-import { app, getPool, initDb } from '../index';
+import { app, getPool, initDb } from '../src/server';
 import bcrypt from 'bcryptjs';
 
 describe('Authentication API', () => {

@@ -312,7 +312,7 @@ app.get('/api/auth/status', authMiddleware, (req: Request, res: Response) => {
 
 // --- GENERIC CRUD ROUTES ---
 
-const allowedTables = [
+const allowedTables: string[] = [
     'users', 'leads', 'transactions', 'tickets', 'banners',
     'notifications', 'autofetch_records', 'admin_payout_records',
     'payout_reports', 'profit_reports'
@@ -321,7 +321,7 @@ const allowedTables = [
 // GET List
 app.get('/api/:table', authMiddleware, async (req: Request, res: Response) => {
     const { table } = req.params;
-    if (!allowedTables.includes(table)) return res.status(404).json({ error: "Not Found" });
+    if (!table || !allowedTables.some(t => t === table)) return res.status(404).json({ error: "Not Found" });
 
     try {
         const [rows] = await pool.execute<RowDataPacket[]>(`SELECT data FROM \`${table}\` ORDER BY updated_at DESC`);
@@ -334,7 +334,7 @@ app.get('/api/:table', authMiddleware, async (req: Request, res: Response) => {
 // GET Single
 app.get('/api/:table/:id', authMiddleware, async (req: Request, res: Response) => {
     const { table, id } = req.params;
-    if (!allowedTables.includes(table)) return res.status(404).json({ error: "Not Found" });
+    if (!table || !allowedTables.some(t => t === table)) return res.status(404).json({ error: "Not Found" });
 
     try {
         if (id) {
@@ -353,7 +353,7 @@ app.get('/api/:table/:id', authMiddleware, async (req: Request, res: Response) =
 // POST (Create or Update with Merge)
 app.post('/api/:table', authMiddleware, upload.any(), async (req: Request, res: Response) => {
     const { table } = req.params;
-    if (!allowedTables.includes(table)) return res.status(404).json({ error: "Not Found" });
+    if (!table || !allowedTables.some(t => t === table)) return res.status(404).json({ error: "Not Found" });
 
     try {
         let newItem: any = {};
@@ -437,7 +437,7 @@ app.post('/api/:table', authMiddleware, upload.any(), async (req: Request, res: 
 // DELETE
 app.delete('/api/:table/:id', authMiddleware, async (req: Request, res: Response) => {
     const { table, id } = req.params;
-    if (!allowedTables.includes(table)) return res.status(404).json({ error: "Not Found" });
+    if (!table || !allowedTables.some(t => t === table)) return res.status(404).json({ error: "Not Found" });
 
     try {
         await pool.execute(`DELETE FROM \`${table}\` WHERE id = ?`, [id]);
@@ -459,7 +459,12 @@ export const getPool = () => pool;
 export { app, initDb };
 
 // Start Server - Only if run directly (not during tests)
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+const isMain = process.argv[1] && (
+    process.argv[1].replace(/\\/g, '/') === fileURLToPath(import.meta.url).replace(/\\/g, '/') ||
+    process.argv[1].replace(/\\/g, '/').endsWith('/tsx') // Handle tsx loader
+);
+
+if (isMain) {
     app.listen(port, () => {
         log.success(`NodeJS Backend running on port ${port}`);
         initDb();
