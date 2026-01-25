@@ -380,24 +380,43 @@ app.post('/api/:table', authMiddleware, upload.any(), async (req, res) => {
         await conn.beginTransaction();
 
         try {
-            const [rows] = await conn.execute(`SELECT data, password_hash FROM \`${table}\` WHERE id = ? FOR UPDATE`, [newItem.id]);
+            const hasPasswordHash = (table === 'users');
+            const selectQuery = hasPasswordHash
+                ? `SELECT data, password_hash FROM \`${table}\` WHERE id = ? FOR UPDATE`
+                : `SELECT data FROM \`${table}\` WHERE id = ? FOR UPDATE`;
+
+            const [rows] = await conn.execute(selectQuery, [newItem.id]);
 
             let finalData;
             if (rows.length > 0) {
                 const existing = JSON.parse(rows[0].data);
                 finalData = { ...existing, ...newItem };
-                const currentHash = passwordHash || rows[0].password_hash;
 
-                await conn.execute(
-                    `UPDATE \`${table}\` SET data = ?, password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-                    [JSON.stringify(finalData), currentHash, newItem.id]
-                );
+                if (hasPasswordHash) {
+                    const currentHash = passwordHash || rows[0].password_hash;
+                    await conn.execute(
+                        `UPDATE \`${table}\` SET data = ?, password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                        [JSON.stringify(finalData), currentHash, newItem.id]
+                    );
+                } else {
+                    await conn.execute(
+                        `UPDATE \`${table}\` SET data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                        [JSON.stringify(finalData), newItem.id]
+                    );
+                }
             } else {
                 finalData = newItem;
-                await conn.execute(
-                    `INSERT INTO \`${table}\` (id, data, password_hash) VALUES (?, ?, ?)`,
-                    [newItem.id, JSON.stringify(finalData), passwordHash]
-                );
+                if (hasPasswordHash) {
+                    await conn.execute(
+                        `INSERT INTO \`${table}\` (id, data, password_hash) VALUES (?, ?, ?)`,
+                        [newItem.id, JSON.stringify(finalData), passwordHash]
+                    );
+                } else {
+                    await conn.execute(
+                        `INSERT INTO \`${table}\` (id, data) VALUES (?, ?)`,
+                        [newItem.id, JSON.stringify(finalData)]
+                    );
+                }
             }
 
             await conn.commit();
@@ -434,8 +453,13 @@ app.get(/(.*)/, (req, res) => {
     res.sendFile(path.join(__dirname, '../client/dist', 'index.html'));
 });
 
-// Start Server
-app.listen(port, () => {
-    log.success(`NodeJS Backend running on port ${port}`);
-    initDb();
-});
+// Export for Testing
+module.exports = { app, pool: () => pool, initDb };
+
+// Start Server - Only if run directly (not during tests)
+if (require.main === module) {
+    app.listen(port, () => {
+        log.success(`NodeJS Backend running on port ${port}`);
+        initDb();
+    });
+}
