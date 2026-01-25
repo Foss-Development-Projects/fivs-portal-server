@@ -1,6 +1,7 @@
-const request = require('supertest');
-const { app, pool, initDb } = require('../index');
-const bcrypt = require('bcryptjs');
+import { describe, it, test, expect, beforeAll, afterAll } from '@jest/globals';
+import request from 'supertest';
+import { app, getPool, initDb } from '../index';
+import bcrypt from 'bcryptjs';
 
 describe('Authentication API', () => {
     let testUser = {
@@ -15,7 +16,7 @@ describe('Authentication API', () => {
     beforeAll(async () => {
         // Ensure DB is initialized
         await initDb();
-        const p = pool();
+        const p = getPool();
         // Clean up any existing test user
         await p.execute("DELETE FROM users WHERE id = ?", [testUser.id]);
         await p.execute("DELETE FROM users WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.email')) = ?", [testUser.email]);
@@ -23,7 +24,7 @@ describe('Authentication API', () => {
 
     afterAll(async () => {
         // Clean up
-        const p = pool();
+        const p = getPool();
         await p.execute("DELETE FROM users WHERE id = ?", [testUser.id]);
         await p.end();
     });

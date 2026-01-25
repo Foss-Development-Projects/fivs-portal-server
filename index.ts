@@ -1,13 +1,17 @@
-require('dotenv').config();
-const express = require('express');
-const path = require('path');
-const mysql = require('mysql2/promise');
-const cors = require('cors');
-const multer = require('multer');
-const crypto = require('crypto');
-const fs = require('fs');
-const bcrypt = require('bcryptjs');
-const chalk = require('chalk');
+import 'dotenv/config';
+import express, { Request, Response, NextFunction } from 'express';
+import path from 'path';
+import mysql, { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import cors from 'cors';
+import multer from 'multer';
+import crypto from 'crypto';
+import fs from 'fs';
+import bcrypt from 'bcryptjs';
+import chalk from 'chalk';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors());
@@ -18,11 +22,11 @@ const port = process.env.PORT || 8080;
 
 // Helper for colored logging
 const log = {
-    info: (msg) => console.log(chalk.blue(`[INFO] ${msg}`)),
-    success: (msg) => console.log(chalk.green(`[SUCCESS] ${msg}`)),
-    warn: (msg) => console.log(chalk.yellow(`[WARN] ${msg}`)),
-    error: (msg, detail = '') => console.error(chalk.red(`[ERROR] ${msg}`), detail),
-    db: (msg) => console.log(chalk.cyan(`[DB] ${msg}`))
+    info: (msg: string) => console.log(chalk.blue(`[INFO] ${msg}`)),
+    success: (msg: string) => console.log(chalk.green(`[SUCCESS] ${msg}`)),
+    warn: (msg: string) => console.log(chalk.yellow(`[WARN] ${msg}`)),
+    error: (msg: string, detail: any = '') => console.error(chalk.red(`[ERROR] ${msg}`), detail),
+    db: (msg: string) => console.log(chalk.cyan(`[DB] ${msg}`))
 };
 
 // Database Configuration
@@ -40,9 +44,18 @@ const dbConfig = {
     keepAliveInitialDelay: 10000
 };
 
-let pool;
+let pool: Pool;
 let isDbReady = false;
-let dbError = null;
+let dbError: string | null = null;
+
+// Extend Express Request type to include user
+declare global {
+    namespace Express {
+        interface Request {
+            user?: any;
+        }
+    }
+}
 
 // Initialize Database
 async function initDb() {
@@ -60,7 +73,6 @@ async function initDb() {
         ];
 
         for (const table of collections) {
-            // Enhanced schema for users to support password hashing
             if (table === 'users') {
                 await pool.execute(`
                     CREATE TABLE IF NOT EXISTS \`users\` (
@@ -71,8 +83,7 @@ async function initDb() {
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
                 `);
 
-                // Ensure password_hash column exists if table was already there
-                const [cols] = await pool.execute("SHOW COLUMNS FROM `users` LIKE 'password_hash'");
+                const [cols] = await pool.execute<RowDataPacket[]>("SHOW COLUMNS FROM `users` LIKE 'password_hash'");
                 if (cols.length === 0) {
                     log.info('Adding password_hash column to users table...');
                     await pool.execute("ALTER TABLE `users` ADD COLUMN password_hash VARCHAR(255) DEFAULT NULL AFTER data");
@@ -89,8 +100,7 @@ async function initDb() {
         }
 
         // --- PASSWORD MIGRATION ---
-        // Migrate existing plain-text passwords from JSON data to password_hash column
-        const [usersToMigrate] = await pool.execute("SELECT id, data FROM users WHERE password_hash IS NULL");
+        const [usersToMigrate] = await pool.execute<RowDataPacket[]>("SELECT id, data FROM users WHERE password_hash IS NULL");
         if (usersToMigrate.length > 0) {
             log.info(`Found ${usersToMigrate.length} users to migrate to hashed passwords.`);
             for (const row of usersToMigrate) {
@@ -98,14 +108,13 @@ async function initDb() {
                     const user = JSON.parse(row.data);
                     if (user.password) {
                         const hash = await bcrypt.hash(user.password, 10);
-                        // Store hash and REMOVE plain text password from JSON
                         delete user.password;
                         await pool.execute(
                             "UPDATE users SET data = ?, password_hash = ? WHERE id = ?",
                             [JSON.stringify(user), hash, row.id]
                         );
                     }
-                } catch (e) {
+                } catch (e: any) {
                     log.error(`Failed to migrate user ${row.id}:`, e.message);
                 }
             }
@@ -115,7 +124,7 @@ async function initDb() {
         isDbReady = true;
         dbError = null;
         log.success('All tables verified and ready.');
-    } catch (err) {
+    } catch (err: any) {
         dbError = err.message;
         log.error('Database Initialization Failed:', err.message);
         setTimeout(initDb, 5000);
@@ -125,7 +134,6 @@ async function initDb() {
 // Multer Config for File Uploads
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        // Store uploads in server/uploads
         const dir = path.join(__dirname, 'uploads');
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
@@ -144,7 +152,7 @@ const upload = multer({ storage });
 app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // DB Guard Middleware
-const dbGuard = (req, res, next) => {
+const dbGuard = (req: Request, res: Response, next: NextFunction) => {
     if (!isDbReady) {
         return res.status(503).json({ error: "Database initializing", message: dbError || "Connecting..." });
     }
@@ -154,12 +162,12 @@ const dbGuard = (req, res, next) => {
 // --- AUTH ROUTES ---
 
 // Login
-app.post('/api/auth/login', dbGuard, async (req, res) => {
+app.post('/api/auth/login', dbGuard, async (req: Request, res: Response) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: "Email/Password required" });
 
     try {
-        const [rows] = await pool.execute(
+        const [rows] = await pool.execute<RowDataPacket[]>(
             "SELECT * FROM users WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.email')) = ?",
             [email]
         );
@@ -172,7 +180,6 @@ app.post('/api/auth/login', dbGuard, async (req, res) => {
             const isMatch = hash ? await bcrypt.compare(password, hash) : (user.password === password);
 
             if (isMatch) {
-                // If matched via plain-text (old style), migrate immediately
                 if (!hash) {
                     const newHash = await bcrypt.hash(password, 10);
                     delete user.password;
@@ -213,18 +220,18 @@ app.post('/api/auth/login', dbGuard, async (req, res) => {
         } else {
             res.status(401).json({ error: "User Not Found" });
         }
-    } catch (err) {
+    } catch (err: any) {
         res.status(500).json({ error: err.message });
     }
 });
 
 // Register
-app.post('/api/auth/register', dbGuard, async (req, res) => {
+app.post('/api/auth/register', dbGuard, async (req: Request, res: Response) => {
     const newUser = req.body;
     if (!newUser || !newUser.email) return res.status(400).json({ error: "Invalid Data" });
 
     try {
-        const [rows] = await pool.execute(
+        const [rows] = await pool.execute<RowDataPacket[]>(
             "SELECT id FROM users WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.email')) = ?",
             [newUser.email]
         );
@@ -241,15 +248,15 @@ app.post('/api/auth/register', dbGuard, async (req, res) => {
             [newUser.id, JSON.stringify(newUser), passwordHash]
         );
         res.json(newUser);
-    } catch (err) {
+    } catch (err: any) {
         res.status(500).json({ error: err.message });
     }
 });
 
 // Auth Middleware for Protected Routes
-const authMiddleware = async (req, res, next) => {
-    const authHeader = req.headers['authorization'] || '';
-    const xAuthToken = req.headers['x-auth-token'] || '';
+const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+    const authHeader = (req.headers['authorization'] as string) || '';
+    const xAuthToken = (req.headers['x-auth-token'] as string) || '';
     let token = '';
 
     if (authHeader.startsWith('Bearer ')) {
@@ -261,7 +268,7 @@ const authMiddleware = async (req, res, next) => {
     if (!token) return res.status(401).json({ error: "Unauthorized: Missing Token" });
 
     try {
-        const [rows] = await pool.execute(
+        const [rows] = await pool.execute<RowDataPacket[]>(
             "SELECT * FROM users WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.session_token')) = ?",
             [token]
         );
@@ -277,7 +284,6 @@ const authMiddleware = async (req, res, next) => {
             return res.status(401).json({ error: "Session Expired" });
         }
 
-        // Sliding window refresh
         const role = (userData.role || 'partner').toLowerCase();
         const timeoutSeconds = (role === 'admin') ? 3600 : 600;
         const newExpiry = now + timeoutSeconds;
@@ -296,7 +302,7 @@ const authMiddleware = async (req, res, next) => {
 };
 
 // Auth Status (Heartbeat)
-app.get('/api/auth/status', authMiddleware, (req, res) => {
+app.get('/api/auth/status', authMiddleware, (req: Request, res: Response) => {
     res.json({
         status: "active",
         expiry: req.user.session_expiry,
@@ -313,52 +319,50 @@ const allowedTables = [
 ];
 
 // GET List
-app.get('/api/:table', authMiddleware, async (req, res) => {
+app.get('/api/:table', authMiddleware, async (req: Request, res: Response) => {
     const { table } = req.params;
     if (!allowedTables.includes(table)) return res.status(404).json({ error: "Not Found" });
 
     try {
-        const [rows] = await pool.execute(`SELECT data FROM \`${table}\` ORDER BY updated_at DESC`);
+        const [rows] = await pool.execute<RowDataPacket[]>(`SELECT data FROM \`${table}\` ORDER BY updated_at DESC`);
         res.json(rows.map(r => JSON.parse(r.data)));
-    } catch (err) {
+    } catch (err: any) {
         res.status(500).json({ error: "Storage Error", details: err.message });
     }
 });
 
 // GET Single
-app.get('/api/:table/:id', authMiddleware, async (req, res) => {
+app.get('/api/:table/:id', authMiddleware, async (req: Request, res: Response) => {
     const { table, id } = req.params;
     if (!allowedTables.includes(table)) return res.status(404).json({ error: "Not Found" });
 
     try {
         if (id) {
-            const [rows] = await pool.execute(`SELECT data FROM \`${table}\` WHERE id = ?`, [id]);
+            const [rows] = await pool.execute<RowDataPacket[]>(`SELECT data FROM \`${table}\` WHERE id = ?`, [id]);
             if (rows.length > 0) res.json(JSON.parse(rows[0].data));
             else res.status(404).json({ error: "Not Found" });
         } else {
-            const [rows] = await pool.execute(`SELECT data FROM \`${table}\` ORDER BY updated_at DESC`);
+            const [rows] = await pool.execute<RowDataPacket[]>(`SELECT data FROM \`${table}\` ORDER BY updated_at DESC`);
             res.json(rows.map(r => JSON.parse(r.data)));
         }
-    } catch (err) {
+    } catch (err: any) {
         res.status(500).json({ error: "Storage Error", details: err.message });
     }
 });
 
 // POST (Create or Update with Merge)
-app.post('/api/:table', authMiddleware, upload.any(), async (req, res) => {
+app.post('/api/:table', authMiddleware, upload.any(), async (req: Request, res: Response) => {
     const { table } = req.params;
     if (!allowedTables.includes(table)) return res.status(404).json({ error: "Not Found" });
 
     try {
-        let newItem = {};
+        let newItem: any = {};
 
-        // Handle Multipart
-        if (req.files && req.files.length > 0) {
+        if (req.files && Array.isArray(req.files) && req.files.length > 0) {
             newItem = JSON.parse(req.body.data || '{}');
             if (!newItem.documents) newItem.documents = {};
 
-            req.files.forEach(file => {
-                // Construct public URL
+            (req.files as Express.Multer.File[]).forEach(file => {
                 const docField = file.fieldname.replace('doc_', '');
                 newItem.documents[docField] = `/api/uploads/${file.filename}`;
             });
@@ -368,14 +372,12 @@ app.post('/api/:table', authMiddleware, upload.any(), async (req, res) => {
 
         if (!newItem.id) return res.status(400).json({ error: "Missing Record ID" });
 
-        // Password Hashing for Users
-        let passwordHash = null;
+        let passwordHash: string | null = null;
         if (table === 'users' && newItem.password) {
             passwordHash = await bcrypt.hash(newItem.password, 10);
             delete newItem.password;
         }
 
-        // Transaction for Merge
         const conn = await pool.getConnection();
         await conn.beginTransaction();
 
@@ -385,7 +387,7 @@ app.post('/api/:table', authMiddleware, upload.any(), async (req, res) => {
                 ? `SELECT data, password_hash FROM \`${table}\` WHERE id = ? FOR UPDATE`
                 : `SELECT data FROM \`${table}\` WHERE id = ? FOR UPDATE`;
 
-            const [rows] = await conn.execute(selectQuery, [newItem.id]);
+            const [rows] = await conn.execute<RowDataPacket[]>(selectQuery, [newItem.id]);
 
             let finalData;
             if (rows.length > 0) {
@@ -427,37 +429,37 @@ app.post('/api/:table', authMiddleware, upload.any(), async (req, res) => {
         } finally {
             conn.release();
         }
-    } catch (err) {
+    } catch (err: any) {
         res.status(500).json({ error: "Storage Error", details: err.message });
     }
 });
 
 // DELETE
-app.delete('/api/:table/:id', authMiddleware, async (req, res) => {
+app.delete('/api/:table/:id', authMiddleware, async (req: Request, res: Response) => {
     const { table, id } = req.params;
     if (!allowedTables.includes(table)) return res.status(404).json({ error: "Not Found" });
 
     try {
         await pool.execute(`DELETE FROM \`${table}\` WHERE id = ?`, [id]);
         res.json({ success: true });
-    } catch (err) {
+    } catch (err: any) {
         res.status(500).json({ error: "Delete Error", details: err.message });
     }
 });
 
 // Serve Frontend (Vite Build)
 app.use(express.static(path.join(__dirname, '../client/dist')));
-app.get(/(.*)/, (req, res) => {
-    // If it's an API route that didn't match, don't serve index.html
+app.get(/(.*)/, (req: Request, res: Response) => {
     if (req.path.startsWith('/api')) return res.status(404).json({ error: "API Route Not Found" });
     res.sendFile(path.join(__dirname, '../client/dist', 'index.html'));
 });
 
 // Export for Testing
-module.exports = { app, pool: () => pool, initDb };
+export const getPool = () => pool;
+export { app, initDb };
 
 // Start Server - Only if run directly (not during tests)
-if (require.main === module) {
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
     app.listen(port, () => {
         log.success(`NodeJS Backend running on port ${port}`);
         initDb();

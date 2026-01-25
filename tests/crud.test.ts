@@ -1,8 +1,9 @@
-const request = require('supertest');
-const { app, pool, initDb } = require('../index');
+import { describe, it, test, expect, beforeAll, afterAll } from '@jest/globals';
+import request from 'supertest';
+import { app, getPool, initDb } from '../index';
 
 describe('Generic CRUD API', () => {
-    let token;
+    let token: string;
     let testUser = {
         id: 'crud_tester',
         name: 'CRUD Tester',
@@ -19,20 +20,12 @@ describe('Generic CRUD API', () => {
 
     beforeAll(async () => {
         await initDb();
-        const p = pool();
+        const p = getPool();
         // Clean up and create admin user for token
         await p.execute("DELETE FROM users WHERE id = ?", [testUser.id]);
         await p.execute("INSERT INTO users (id, data) VALUES (?, ?)", [testUser.id, JSON.stringify(testUser)]);
 
-        // Login to get token
-        const loginRes = await request(app)
-            .post('/api/auth/login')
-            .send({ email: testUser.email, password: 'password123' }); // Note: login logic handles plain text if hash missing
-
-        // Wait, I need to make sure the login works. 
-        // In index.js, if hash is missing, it compares plain text.
-        // But for fresh insert, I should probably set session_token manually or use the login if it works.
-        // Let's just set the session token manually for simplicity in beforeAll
+        // Manual session token setup for testing
         const testToken = 'test_token_xyz';
         await p.execute("UPDATE users SET data = JSON_SET(data, '$.session_token', ?, '$.session_expiry', ?) WHERE id = ?",
             [testToken, Math.floor(Date.now() / 1000) + 3600, testUser.id]);
@@ -40,7 +33,7 @@ describe('Generic CRUD API', () => {
     });
 
     afterAll(async () => {
-        const p = pool();
+        const p = getPool();
         await p.execute("DELETE FROM users WHERE id = ?", [testUser.id]);
         await p.execute("DELETE FROM leads WHERE id = ?", [testRecord.id]);
         await p.end();
