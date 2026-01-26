@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { RowDataPacket } from 'mysql2/promise';
 import { pool } from '../config/db.js';
 import { dbGuard, authMiddleware } from '../middleware/authMiddleware.js';
+import { log } from '../utils/logger.js';
 
 const router = Router();
 
@@ -117,15 +118,16 @@ router.post('/register', dbGuard, async (req: Request, res: Response) => {
                 lead_submission_enabled, category
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-                newUser.id, newUser.email, newUser.username, newUser.mobile || newUser.phone, passwordHash,
+                newUser.id, newUser.email, newUser.username || null, newUser.mobile || newUser.phone || null, passwordHash,
                 newUser.role || 'partner', newUser.status || 'pending', newUser.name,
-                newUser.kycStatus || 'not_submitted', newUser.kycReason, newUser.kycDocuments ? JSON.stringify(newUser.kycDocuments) : null,
-                newUser.bankName, newUser.accountNumber, newUser.ifscCode, newUser.accountHolder,
-                newUser.leadSubmissionEnabled || false, newUser.category
+                newUser.kycStatus || 'not_submitted', newUser.kycReason || null, newUser.kycDocuments ? JSON.stringify(newUser.kycDocuments) : null,
+                newUser.bankName || null, newUser.accountNumber || null, newUser.ifscCode || null, newUser.accountHolder || null,
+                newUser.leadSubmissionEnabled || false, newUser.category || null
             ]
         );
         res.json(newUser);
     } catch (err: any) {
+        log.error("Registration Failed:", err);
         res.status(500).json({ error: err.message });
     }
 });

@@ -17,6 +17,7 @@ app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 const port = process.env.PORT || 8080;
+const host = process.env.HOST || 'localhost';
 
 // Static Files - Serve uploads
 app.use('/api/uploads', express.static(path.join(__dirname, '../uploads')));
@@ -44,7 +45,7 @@ const isMain = process.argv[1] && (
 
 if (isMain) {
     app.listen(port, () => {
-        log.success(`NodeJS Backend running on port ${port}`);
+        log.success(`NodeJS Backend running on port ${host}:${port}`);
         initDb();
     });
 }
