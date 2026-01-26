@@ -35,7 +35,7 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
 
     try {
         const [rows] = await pool.execute<RowDataPacket[]>(
-            "SELECT * FROM users WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.session_token')) = ?",
+            "SELECT * FROM users WHERE session_token = ?",
             [token]
         );
 
@@ -43,7 +43,28 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
             return res.status(401).json({ error: "Unauthorized: Invalid or Expired Token" });
         }
 
-        const userData = JSON.parse(rows[0].data);
+        const dbUser = rows[0];
+        // Normalize user object from flat columns
+        const userData: any = {
+            id: dbUser.id,
+            email: dbUser.email,
+            username: dbUser.username,
+            mobile: dbUser.mobile,
+            role: dbUser.role,
+            status: dbUser.status,
+            name: dbUser.name,
+            kycStatus: dbUser.kyc_status,
+            kycReason: dbUser.kyc_reason,
+            kycDocuments: dbUser.kyc_documents,
+            bankName: dbUser.bank_name,
+            accountNumber: dbUser.account_number,
+            ifscCode: dbUser.ifsc_code,
+            accountHolder: dbUser.account_holder,
+            leadSubmissionEnabled: !!dbUser.lead_submission_enabled,
+            category: dbUser.category,
+            session_token: dbUser.session_token,
+            session_expiry: dbUser.session_expiry
+        };
         const now = Math.floor(Date.now() / 1000);
 
         if (userData.session_expiry && userData.session_expiry < now) {
@@ -56,7 +77,7 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
         const newExpiry = now + timeoutSeconds;
 
         await pool.execute(
-            "UPDATE users SET data = JSON_SET(data, '$.session_expiry', ?) WHERE id = ?",
+            "UPDATE users SET session_expiry = ? WHERE id = ?",
             [newExpiry, userData.id]
         );
 

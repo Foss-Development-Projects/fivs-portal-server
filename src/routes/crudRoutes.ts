@@ -48,8 +48,23 @@ router.get('/:table', authMiddleware, async (req: Request, res: Response) => {
     if (!isValidTable(table)) return res.status(404).json({ error: "Not Found" });
 
     try {
-        const [rows] = await pool.execute<RowDataPacket[]>(`SELECT data FROM \`${table}\` ORDER BY updated_at DESC`);
-        res.json(rows.map(r => JSON.parse(r.data)));
+        const selectSql = (table === 'users') ? `SELECT * FROM \`${table}\` ORDER BY updated_at DESC` : `SELECT data FROM \`${table}\` ORDER BY updated_at DESC`;
+        const [rows] = await pool.execute<RowDataPacket[]>(selectSql);
+
+        if (table === 'users') {
+            res.json(rows.map(r => {
+                const user: any = {
+                    id: r.id, email: r.email, username: r.username, mobile: r.mobile, role: r.role, status: r.status, name: r.name,
+                    kycStatus: r.kyc_status, kycReason: r.kyc_reason, kycDocuments: r.kyc_documents,
+                    bankName: r.bank_name, accountNumber: r.account_number, ifscCode: r.ifsc_code, accountHolder: r.account_holder,
+                    leadSubmissionEnabled: !!r.lead_submission_enabled, category: r.category,
+                    session_token: r.session_token, session_expiry: r.session_expiry
+                };
+                return user;
+            }));
+        } else {
+            res.json(rows.map(r => JSON.parse(r.data)));
+        }
     } catch (err: any) {
         res.status(500).json({ error: "Storage Error", details: err.message });
     }
@@ -62,13 +77,42 @@ router.get('/:table/:id', authMiddleware, async (req: Request, res: Response) =>
     if (!isValidTable(table)) return res.status(404).json({ error: "Not Found" });
 
     try {
-        if (id) {
-            const [rows] = await pool.execute<RowDataPacket[]>(`SELECT data FROM \`${table}\` WHERE id = ?`, [id]);
-            if (rows.length > 0) res.json(JSON.parse(rows[0].data));
-            else res.status(404).json({ error: "Not Found" });
+        if (table === 'users') {
+            const query = id ? `SELECT * FROM users WHERE id = ?` : `SELECT * FROM users ORDER BY updated_at DESC`;
+            const params = id ? [id] : [];
+            const [rows] = await pool.execute<RowDataPacket[]>(query, params);
+
+            if (id && rows.length === 0) return res.status(404).json({ error: "Not Found" });
+
+            const mapUser = (r: any) => ({
+                id: r.id, email: r.email, username: r.username, mobile: r.mobile, role: r.role, status: r.status, name: r.name,
+                kycStatus: r.kyc_status, kycReason: r.kyc_reason, kycDocuments: r.kyc_documents,
+                bankName: r.bank_name, accountNumber: r.account_number, ifscCode: r.ifsc_code, accountHolder: r.account_holder,
+                leadSubmissionEnabled: !!r.lead_submission_enabled, category: r.category,
+                session_token: r.session_token, session_expiry: r.session_expiry
+            });
+
+            if (id) res.json(mapUser(rows[0]));
+            else res.json(rows.map(mapUser));
         } else {
-            const [rows] = await pool.execute<RowDataPacket[]>(`SELECT data FROM \`${table}\` ORDER BY updated_at DESC`);
-            res.json(rows.map(r => JSON.parse(r.data)));
+            // General Table Logic (JSON Data)
+            if (id) {
+                const [rows] = await pool.execute<RowDataPacket[]>(`SELECT * FROM \`${table}\` WHERE id = ?`, [id]);
+                if (rows.length > 0) {
+                    const r = rows[0];
+                    const item = { ...JSON.parse(r.data), ...r };
+                    delete item.data;
+                    res.json(item);
+                }
+                else res.status(404).json({ error: "Not Found" });
+            } else {
+                const [rows] = await pool.execute<RowDataPacket[]>(`SELECT * FROM \`${table}\` ORDER BY updated_at DESC`);
+                res.json(rows.map(r => {
+                    const item = { ...JSON.parse(r.data), ...r };
+                    delete item.data;
+                    return item;
+                }));
+            }
         }
     } catch (err: any) {
         res.status(500).json({ error: "Storage Error", details: err.message });
@@ -108,35 +152,111 @@ router.post('/:table', authMiddleware, upload.any(), async (req: Request, res: R
 
         try {
             const hasPasswordHash = (table === 'users');
-            const selectQuery = hasPasswordHash
-                ? `SELECT data, password_hash FROM \`${table}\` WHERE id = ? FOR UPDATE`
+
+            // For users we accept password_hash only if we computed it new, else we keep existing
+            // For users, "data" column is removed, so we only select columns.
+            const selectQuery = (table === 'users')
+                ? `SELECT * FROM \`${table}\` WHERE id = ? FOR UPDATE`
                 : `SELECT data FROM \`${table}\` WHERE id = ? FOR UPDATE`;
 
             const [rows] = await conn.execute<RowDataPacket[]>(selectQuery, [newItem.id]);
 
             let finalData;
             if (rows.length > 0) {
-                const existing = JSON.parse(rows[0].data);
-                finalData = { ...existing, ...newItem };
+                // UPDATE
+                if (table === 'users') {
+                    // Merge existing columns with newItem
+                    const dbUser = rows[0];
+                    const existingUser: any = {
+                        id: dbUser.id,
+                        email: dbUser.email,
+                        username: dbUser.username,
+                        mobile: dbUser.mobile,
+                        role: dbUser.role,
+                        status: dbUser.status,
+                        name: dbUser.name,
+                        kycStatus: dbUser.kyc_status,
+                        kycReason: dbUser.kyc_reason,
+                        kycDocuments: dbUser.kyc_documents,
+                        bankName: dbUser.bank_name,
+                        accountNumber: dbUser.account_number,
+                        ifscCode: dbUser.ifsc_code,
+                        accountHolder: dbUser.account_holder,
+                        leadSubmissionEnabled: !!dbUser.lead_submission_enabled,
+                        category: dbUser.category,
+                        session_token: dbUser.session_token,
+                        session_expiry: dbUser.session_expiry
+                    };
 
-                if (hasPasswordHash) {
-                    const currentHash = passwordHash || rows[0].password_hash;
+                    finalData = { ...existingUser, ...newItem };
+                    const currentHash = passwordHash || dbUser.password_hash;
+
                     await conn.execute(
-                        `UPDATE \`${table}\` SET data = ?, password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-                        [JSON.stringify(finalData), currentHash, newItem.id]
+                        `UPDATE users SET 
+                            email = ?, username = ?, mobile = ?, role = ?, status = ?, name = ?, 
+                            kyc_status = ?, kyc_reason = ?, kyc_documents = ?, 
+                            bank_name = ?, account_number = ?, ifsc_code = ?, account_holder = ?, 
+                            lead_submission_enabled = ?, category = ?, 
+                            password_hash = ?, updated_at = CURRENT_TIMESTAMP 
+                        WHERE id = ?`,
+                        [
+                            finalData.email || null,
+                            finalData.username || null,
+                            finalData.mobile || finalData.phone || null,
+                            finalData.role || 'partner',
+                            finalData.status || 'pending',
+                            finalData.name || null,
+                            finalData.kycStatus || 'not_submitted',
+                            finalData.kycReason || null,
+                            finalData.kycDocuments ? JSON.stringify(finalData.kycDocuments) : null,
+                            finalData.bankName || null,
+                            finalData.accountNumber || null,
+                            finalData.ifscCode || null,
+                            finalData.accountHolder || null,
+                            finalData.leadSubmissionEnabled || false,
+                            finalData.category || null,
+                            currentHash,
+                            newItem.id
+                        ]
                     );
                 } else {
+                    const existing = JSON.parse(rows[0].data);
+                    finalData = { ...existing, ...newItem };
                     await conn.execute(
                         `UPDATE \`${table}\` SET data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
                         [JSON.stringify(finalData), newItem.id]
                     );
                 }
             } else {
+                // INSERT
                 finalData = newItem;
-                if (hasPasswordHash) {
+                if (table === 'users') {
                     await conn.execute(
-                        `INSERT INTO \`${table}\` (id, data, password_hash) VALUES (?, ?, ?)`,
-                        [newItem.id, JSON.stringify(finalData), passwordHash]
+                        `INSERT INTO users (
+                            id, email, username, mobile, password_hash, role, status, name, 
+                            kyc_status, kyc_reason, kyc_documents, 
+                            bank_name, account_number, ifsc_code, account_holder, 
+                            lead_submission_enabled, category
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [
+                            newItem.id,
+                            finalData.email || null,
+                            finalData.username || null,
+                            finalData.mobile || finalData.phone || null,
+                            passwordHash,
+                            finalData.role || 'partner',
+                            finalData.status || 'pending',
+                            finalData.name || null,
+                            finalData.kycStatus || 'not_submitted',
+                            finalData.kycReason || null,
+                            finalData.kycDocuments ? JSON.stringify(finalData.kycDocuments) : null,
+                            finalData.bankName || null,
+                            finalData.accountNumber || null,
+                            finalData.ifscCode || null,
+                            finalData.accountHolder || null,
+                            finalData.leadSubmissionEnabled || false,
+                            finalData.category || null
+                        ]
                     );
                 } else {
                     await conn.execute(

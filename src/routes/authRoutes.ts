@@ -14,13 +14,33 @@ router.post('/login', dbGuard, async (req: Request, res: Response) => {
 
     try {
         const [rows] = await pool.execute<RowDataPacket[]>(
-            "SELECT * FROM users WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.email')) = ?",
+            "SELECT * FROM users WHERE email = ?",
             [email]
         );
 
         if (rows.length > 0) {
             const dbUserRecord = rows[0];
-            const user = JSON.parse(dbUserRecord.data);
+            // Normalize user object from flat columns
+            const user: any = {
+                id: dbUserRecord.id,
+                email: dbUserRecord.email,
+                username: dbUserRecord.username,
+                mobile: dbUserRecord.mobile,
+                role: dbUserRecord.role,
+                status: dbUserRecord.status,
+                name: dbUserRecord.name,
+                kycStatus: dbUserRecord.kyc_status,
+                kycReason: dbUserRecord.kyc_reason,
+                kycDocuments: dbUserRecord.kyc_documents,
+                bankName: dbUserRecord.bank_name,
+                accountNumber: dbUserRecord.account_number,
+                ifscCode: dbUserRecord.ifsc_code,
+                accountHolder: dbUserRecord.account_holder,
+                leadSubmissionEnabled: !!dbUserRecord.lead_submission_enabled,
+                category: dbUserRecord.category,
+                session_token: dbUserRecord.session_token,
+                session_expiry: dbUserRecord.session_expiry
+            };
             const hash = dbUserRecord.password_hash;
 
             const isMatch = hash ? await bcrypt.compare(password, hash) : (user.password === password);
@@ -30,8 +50,8 @@ router.post('/login', dbGuard, async (req: Request, res: Response) => {
                     const newHash = await bcrypt.hash(password, 10);
                     delete user.password;
                     await pool.execute(
-                        "UPDATE users SET data = ?, password_hash = ? WHERE id = ?",
-                        [JSON.stringify(user), newHash, user.id]
+                        "UPDATE users SET password_hash = ? WHERE id = ?",
+                        [newHash, user.id]
                     );
                 }
 
@@ -54,8 +74,8 @@ router.post('/login', dbGuard, async (req: Request, res: Response) => {
                 user.session_expiry = expiry;
 
                 await pool.execute(
-                    "UPDATE users SET data = ? WHERE id = ?",
-                    [JSON.stringify(user), user.id]
+                    "UPDATE users SET session_token = ?, session_expiry = ? WHERE id = ?",
+                    [token, expiry, user.id]
                 );
 
                 delete user.password;
@@ -78,7 +98,7 @@ router.post('/register', dbGuard, async (req: Request, res: Response) => {
 
     try {
         const [rows] = await pool.execute<RowDataPacket[]>(
-            "SELECT id FROM users WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.email')) = ?",
+            "SELECT id FROM users WHERE email = ?",
             [newUser.email]
         );
 
@@ -90,8 +110,19 @@ router.post('/register', dbGuard, async (req: Request, res: Response) => {
         delete newUser.password;
 
         await pool.execute(
-            "INSERT INTO users (id, data, password_hash) VALUES (?, ?, ?)",
-            [newUser.id, JSON.stringify(newUser), passwordHash]
+            `INSERT INTO users (
+                id, email, username, mobile, password_hash, role, status, name, 
+                kyc_status, kyc_reason, kyc_documents, 
+                bank_name, account_number, ifsc_code, account_holder, 
+                lead_submission_enabled, category
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                newUser.id, newUser.email, newUser.username, newUser.mobile || newUser.phone, passwordHash,
+                newUser.role || 'partner', newUser.status || 'pending', newUser.name,
+                newUser.kycStatus || 'not_submitted', newUser.kycReason, newUser.kycDocuments ? JSON.stringify(newUser.kycDocuments) : null,
+                newUser.bankName, newUser.accountNumber, newUser.ifscCode, newUser.accountHolder,
+                newUser.leadSubmissionEnabled || false, newUser.category
+            ]
         );
         res.json(newUser);
     } catch (err: any) {
