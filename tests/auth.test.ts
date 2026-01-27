@@ -19,7 +19,8 @@ describe('Authentication API', () => {
         const p = getPool();
         // Clean up any existing test user
         await p.execute("DELETE FROM users WHERE id = ?", [testUser.id]);
-        await p.execute("DELETE FROM users WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.email')) = ?", [testUser.email]);
+        await p.execute("DELETE FROM users WHERE email = ?", [testUser.email]);
+
     });
 
     afterAll(async () => {

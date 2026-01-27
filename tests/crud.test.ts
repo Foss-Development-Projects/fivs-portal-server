@@ -23,13 +23,12 @@ describe('Generic CRUD API', () => {
         const p = getPool();
         // Clean up and create admin user for token
         await p.execute("DELETE FROM users WHERE id = ?", [testUser.id]);
-        await p.execute("INSERT INTO users (id, data) VALUES (?, ?)", [testUser.id, JSON.stringify(testUser)]);
+        await p.execute(
+            "INSERT INTO users (id, email, name, role, status, session_token, session_expiry) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [testUser.id, testUser.email, testUser.name, testUser.role, testUser.status, 'test_token_xyz', Math.floor(Date.now() / 1000) + 3600]
+        );
+        token = 'test_token_xyz';
 
-        // Manual session token setup for testing
-        const testToken = 'test_token_xyz';
-        await p.execute("UPDATE users SET data = JSON_SET(data, '$.session_token', ?, '$.session_expiry', ?) WHERE id = ?",
-            [testToken, Math.floor(Date.now() / 1000) + 3600, testUser.id]);
-        token = testToken;
     });
 
     afterAll(async () => {
