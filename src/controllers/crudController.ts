@@ -13,6 +13,14 @@ const isValidTable = (table: string | undefined): table is string => {
     return !!table && allowedTables.some(t => t === table);
 };
 
+const safeParse = (str: string, fallback: any = {}) => {
+    try {
+        return JSON.parse(str);
+    } catch (e) {
+        return fallback;
+    }
+};
+
 // GET List
 export const getList = async (req: Request, res: Response) => {
     const table = req.params.table as string;
@@ -34,7 +42,7 @@ export const getList = async (req: Request, res: Response) => {
                 return user;
             }));
         } else {
-            res.json(rows.map(r => JSON.parse(r.data)));
+            res.json(rows.map(r => safeParse(r.data)));
         }
     } catch (err: any) {
         res.status(500).json({ error: "Storage Error", details: err.message });
@@ -71,7 +79,7 @@ export const getSingle = async (req: Request, res: Response) => {
                 const [rows] = await pool.execute<RowDataPacket[]>(`SELECT * FROM \`${table}\` WHERE id = ?`, [id]);
                 if (rows.length > 0) {
                     const r = rows[0];
-                    const item = { ...JSON.parse(r.data), ...r };
+                    const item = { ...safeParse(r.data), ...r };
                     delete item.data;
                     res.json(item);
                 }
@@ -79,7 +87,7 @@ export const getSingle = async (req: Request, res: Response) => {
             } else {
                 const [rows] = await pool.execute<RowDataPacket[]>(`SELECT * FROM \`${table}\` ORDER BY updated_at DESC`);
                 res.json(rows.map(r => {
-                    const item = { ...JSON.parse(r.data), ...r };
+                    const item = { ...safeParse(r.data), ...r };
                     delete item.data;
                     return item;
                 }));
@@ -99,7 +107,7 @@ export const createOrUpdate = async (req: Request, res: Response) => {
         let newItem: any = {};
 
         if (req.files && Array.isArray(req.files) && req.files.length > 0) {
-            newItem = JSON.parse(req.body.data || '{}');
+            newItem = safeParse(req.body.data || '{}');
             if (!newItem.documents) newItem.documents = {};
 
             (req.files as Express.Multer.File[]).forEach(file => {
@@ -191,7 +199,7 @@ export const createOrUpdate = async (req: Request, res: Response) => {
                         ]
                     );
                 } else {
-                    const existing = JSON.parse(rows[0].data);
+                    const existing = safeParse(rows[0].data);
                     finalData = { ...existing, ...newItem };
                     await conn.execute(
                         `UPDATE \`${table}\` SET data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,

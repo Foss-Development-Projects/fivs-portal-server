@@ -17,14 +17,29 @@ const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         // Store uploads in src/uploads (relative to current directory)
         const dir = path.join(__dirname, '../../uploads');
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
+        const debugLogPath = path.join(__dirname, '../../upload_debug.log');
+
+        try {
+            fs.appendFileSync(debugLogPath, `[Multer] Processing file: ${file.originalname}\n`);
+            fs.appendFileSync(debugLogPath, `[Multer] Target Dir: ${dir}\n`);
+
+            if (!fs.existsSync(dir)) {
+                fs.appendFileSync(debugLogPath, `[Multer] Directory does not exist, creating...\n`);
+                fs.mkdirSync(dir, { recursive: true });
+            } else {
+                fs.appendFileSync(debugLogPath, `[Multer] Directory exists.\n`);
+            }
+            cb(null, dir);
+        } catch (err: any) {
+            if (fs.existsSync(debugLogPath)) fs.appendFileSync(debugLogPath, `[Multer] Error: ${err.message}\n`);
+            cb(err, dir);
         }
-        cb(null, dir);
     },
     filename: (req, file, cb) => {
         const ext = path.extname(file.originalname);
         const filename = 'doc_' + crypto.randomBytes(8).toString('hex') + ext;
+        const debugLogPath = path.join(__dirname, '../../upload_debug.log');
+        fs.appendFileSync(debugLogPath, `[Multer] Generated Filename: ${filename}\n`);
         cb(null, filename);
     }
 });

@@ -5,6 +5,14 @@ import { RowDataPacket } from 'mysql2/promise';
 import { pool } from '../config/db.js';
 import { log } from '../utils/logger.js';
 
+const safeParse = (str: string, fallback: any = null) => {
+    try {
+        return JSON.parse(str);
+    } catch (e) {
+        return fallback;
+    }
+};
+
 // Login Logic
 export const login = async (req: Request, res: Response) => {
     const { email, password } = req.body;
@@ -85,7 +93,8 @@ export const login = async (req: Request, res: Response) => {
             res.status(401).json({ error: "User Not Found" });
         }
     } catch (err: any) {
-        res.status(500).json({ error: err.message });
+        log.error("Login Failed:", err);
+        res.status(500).json({ error: "Authentication Error", details: err.message });
     }
 };
 
@@ -107,6 +116,8 @@ export const register = async (req: Request, res: Response) => {
         const passwordHash = await bcrypt.hash(newUser.password, 10);
         delete newUser.password;
 
+        const kycDocs = (typeof newUser.kycDocuments === 'string') ? newUser.kycDocuments : JSON.stringify(newUser.kycDocuments || []);
+
         await pool.execute(
             `INSERT INTO users (
                 id, email, username, mobile, password_hash, role, status, name, 
@@ -117,7 +128,7 @@ export const register = async (req: Request, res: Response) => {
             [
                 newUser.id, newUser.email, newUser.username || null, newUser.mobile || newUser.phone || null, passwordHash,
                 newUser.role || 'partner', newUser.status || 'pending', newUser.name,
-                newUser.kycStatus || 'not_submitted', newUser.kycReason || null, newUser.kycDocuments ? JSON.stringify(newUser.kycDocuments) : null,
+                newUser.kycStatus || 'not_submitted', newUser.kycReason || null, kycDocs,
                 newUser.bankName || null, newUser.accountNumber || null, newUser.ifscCode || null, newUser.accountHolder || null,
                 newUser.leadSubmissionEnabled || false, newUser.category || null
             ]

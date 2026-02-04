@@ -84,7 +84,8 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
         req.user = userData;
         req.user.session_expiry = newExpiry;
         next();
-    } catch (err) {
-        res.status(500).json({ error: "Auth Error" });
+    } catch (err: any) {
+        console.error('AUTH MIDDLEWARE ERROR:', err);
+        res.status(500).json({ error: "Auth Error", details: err.message });
     }
 };

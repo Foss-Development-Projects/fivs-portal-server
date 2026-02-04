@@ -8,6 +8,13 @@ import { initDb, getPool } from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
 import crudRoutes from './routes/crudRoutes.js';
 
+process.on('uncaughtException', (err) => {
+    console.error('UNCAUGHT EXCEPTION:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('UNHANDLED REJECTION at:', promise, 'reason:', reason);
+});
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -16,11 +23,20 @@ app.use(cors());
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
-const port = process.env.PORT || 8080;
+// Request Logger
+app.use((req, res, next) => {
+    log.info(`${req.method} ${req.path}`);
+    next();
+});
+
+const port = Number(process.env.PORT) || 8080;
 const host = process.env.HOST || 'localhost';
 
 // Static Files - Serve uploads
 app.use('/api/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use('/api/uploads', (req: Request, res: Response) => {
+    res.status(404).json({ error: "File Not Found" });
+});
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -34,18 +50,20 @@ app.get(/(.*)/, (req: Request, res: Response) => {
     res.sendFile(indexPath);
 });
 
-// Export for Testing
-export { app, initDb, getPool };
-
-// Start Server - Only if run directly (not during tests)
-const isMain = process.argv[1] && (
-    process.argv[1].replace(/\\/g, '/') === fileURLToPath(import.meta.url).replace(/\\/g, '/') ||
-    process.argv[1].replace(/\\/g, '/').endsWith('/tsx')
-);
-
-if (isMain) {
-    app.listen(port, () => {
-        log.success(`NodeJS Backend running on port ${host}:${port}`);
-        initDb();
+// Global Error Handler
+app.use((err: any, req: Request, res: Response, next: any) => {
+    log.error(`Unhandled Error [${req.method} ${req.path}]:`, err.message);
+    res.status(500).json({
+        error: "Internal Server Error",
+        details: err.message || "An unexpected error occurred",
+        path: req.path
     });
-}
+});
+
+// Start Server
+app.listen(port, () => {
+    log.success(`NodeJS Backend running on port ${host}:${port}`);
+    initDb();
+});
+
+export { app, initDb, getPool };
