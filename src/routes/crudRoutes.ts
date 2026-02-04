@@ -52,7 +52,15 @@ router.get('/:table', authMiddleware, crudController.getList);
 router.get('/:table/:id', authMiddleware, crudController.getSingle);
 
 // POST (Create or Update with Merge)
-router.post('/:table', authMiddleware, upload.any(), crudController.createOrUpdate);
+router.post('/:table', authMiddleware, (req, res, next) => {
+    upload.any()(req, res, (err) => {
+        if (err) {
+            console.error(`[MULTER ERROR] ${err.message}`);
+            return res.status(400).json({ error: "File Upload Error", details: err.message });
+        }
+        next();
+    });
+}, crudController.createOrUpdate);
 
 // DELETE
 router.delete('/:table/:id', authMiddleware, crudController.deleteItem);

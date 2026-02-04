@@ -104,9 +104,14 @@ export const createOrUpdate = async (req: Request, res: Response) => {
     if (!isValidTable(table)) return res.status(404).json({ error: "Not Found" });
 
     try {
+        console.log(`[CRUD] POST to ${table}`);
+        console.log(`[CRUD] Body keys:`, Object.keys(req.body));
+        console.log(`[CRUD] Files count:`, req.files?.length || 0);
+
         let newItem: any = {};
 
         if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+            console.log(`[CRUD] Raw data string (files):`, req.body.data?.substring(0, 100));
             newItem = safeParse(req.body.data || '{}');
             if (!newItem.documents) newItem.documents = {};
 
@@ -115,8 +120,16 @@ export const createOrUpdate = async (req: Request, res: Response) => {
                 newItem.documents[docField] = `/api/uploads/${file.filename}`;
             });
         } else {
-            newItem = req.body;
+            // Handle Multipart (FormData) without files
+            if (req.body.data && typeof req.body.data === 'string') {
+                console.log(`[CRUD] Raw data string (no files):`, req.body.data.substring(0, 100));
+                newItem = safeParse(req.body.data);
+            } else {
+                newItem = req.body;
+            }
         }
+
+        console.log(`[CRUD] Parsed newItem.id:`, newItem.id);
 
         if (!newItem.id) return res.status(400).json({ error: "Missing Record ID" });
 
@@ -266,6 +279,12 @@ export const deleteItem = async (req: Request, res: Response) => {
 
     try {
         await pool.execute(`DELETE FROM \`${table}\` WHERE id = ?`, [id]);
+
+        // Cascading Sync: If intelligence record is deleted, remove payout log too
+        if (table === 'autofetch_records') {
+            await pool.execute(`DELETE FROM \`admin_payout_records\` WHERE id = ?`, [id]);
+        }
+
         res.json({ success: true });
     } catch (err: any) {
         res.status(500).json({ error: "Delete Error", details: err.message });
