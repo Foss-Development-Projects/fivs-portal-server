@@ -38,7 +38,8 @@ const port = Number(process.env.PORT) || 8080;
 const host = process.env.HOST || 'localhost';
 
 // Static Files - Serve uploads
-app.use('/api/uploads', express.static(path.join(__dirname, '../uploads')));
+const uploadDir = path.join(process.cwd(), 'uploads');
+app.use('/api/uploads', express.static(uploadDir));
 app.use('/api/uploads', (req: Request, res: Response) => {
     res.status(404).json({ error: "File Not Found" });
 });
