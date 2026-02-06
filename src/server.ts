@@ -19,7 +19,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(cors());
+
+// Enhanced CORS for development and cross-origin usage
+app.use(cors({
+    origin: ['http://localhost:5173', 'https://fivs-partner-portal-client.vercel.app', 'https://fivs-server.netlify.app'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Auth-Token'],
+    credentials: true
+}));
 
 // Global Request Logger
 app.use((req, res, next) => {
