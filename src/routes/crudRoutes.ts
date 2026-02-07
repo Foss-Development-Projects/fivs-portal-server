@@ -17,7 +17,15 @@ const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         // Use absolute path for reliability across environments
         const rootDir = process.cwd();
-        const uploadDir = path.join(rootDir, 'uploads');
+        const ext = path.extname(file.originalname).toLowerCase();
+
+        // Define destination subfolder
+        let subFolder = 'uploads';
+        if (ext === '.pdf') {
+            subFolder = path.join('uploads', 'docs');
+        }
+
+        const uploadDir = path.join(rootDir, subFolder);
 
         if (!fs.existsSync(uploadDir)) {
             fs.mkdirSync(uploadDir, { recursive: true });

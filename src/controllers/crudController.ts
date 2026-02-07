@@ -131,11 +131,13 @@ export const createOrUpdate = async (req: Request, res: Response) => {
         if (req.files && Array.isArray(req.files) && req.files.length > 0) {
             console.log(`[CRUD] Raw data string (files):`, req.body.data?.substring(0, 100));
             newItem = safeParse(req.body.data || '{}');
-            if (!newItem.documents) newItem.documents = {};
+            newItem.documents = newItem.documents || {};
 
             (req.files as Express.Multer.File[]).forEach(file => {
                 const docField = file.fieldname.replace('doc_', '');
-                newItem.documents[docField] = `/api/uploads/${file.filename}`;
+                const ext = path.extname(file.filename).toLowerCase();
+                const prefix = ext === '.pdf' ? '/api/uploads/docs/' : '/api/uploads/';
+                newItem.documents[docField] = `${prefix}${file.filename}`;
             });
         } else {
             // Handle Multipart (FormData) without files
