@@ -18,11 +18,14 @@ const storage = multer.diskStorage({
         // Use absolute path for reliability across environments
         const rootDir = process.cwd();
         const ext = path.extname(file.originalname).toLowerCase();
+        const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif', '.bmp'];
 
         // Define destination subfolder
         let subFolder = 'uploads';
         if (ext === '.pdf') {
             subFolder = path.join('uploads', 'docs');
+        } else if (imageExtensions.includes(ext)) {
+            subFolder = path.join('uploads', 'img');
         }
 
         const uploadDir = path.join(rootDir, subFolder);

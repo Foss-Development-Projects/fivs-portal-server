@@ -136,7 +136,15 @@ export const createOrUpdate = async (req: Request, res: Response) => {
             (req.files as Express.Multer.File[]).forEach(file => {
                 const docField = file.fieldname.replace('doc_', '');
                 const ext = path.extname(file.filename).toLowerCase();
-                const prefix = ext === '.pdf' ? '/api/uploads/docs/' : '/api/uploads/';
+                const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif', '.bmp'];
+
+                let prefix = '/api/uploads/';
+                if (ext === '.pdf') {
+                    prefix = '/api/uploads/docs/';
+                } else if (imageExtensions.includes(ext)) {
+                    prefix = '/api/uploads/img/';
+                }
+
                 newItem.documents[docField] = `${prefix}${file.filename}`;
             });
         } else {
