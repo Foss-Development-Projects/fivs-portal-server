@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import { RowDataPacket } from 'mysql2/promise';
 import { pool } from '../config/db.js';
 import bcrypt from 'bcryptjs';
+import fs from 'fs';
+import path from 'path';
 
 const allowedTables: string[] = [
     'users', 'leads', 'transactions', 'tickets', 'banners',
@@ -19,6 +21,22 @@ const safeParse = (str: string, fallback: any = {}) => {
     } catch (e) {
         return fallback;
     }
+};
+
+const deleteFileByUrl = (url: string) => {
+    if (!url || typeof url !== 'string' || !url.startsWith('/api/uploads/')) return;
+
+    // Resolve relative path to absolute filesystem path
+    const filename = url.replace('/api/uploads/', '');
+    const fullPath = path.join(process.cwd(), 'uploads', filename);
+
+    fs.unlink(fullPath, (err) => {
+        if (err) {
+            console.error(`[Cleanup] Failed to delete file: ${fullPath}`, err.message);
+        } else {
+            console.log(`[Cleanup] Successfully deleted: ${filename}`);
+        }
+    });
 };
 
 // GET List
@@ -156,9 +174,11 @@ export const createOrUpdate = async (req: Request, res: Response) => {
             let finalData;
             if (rows.length > 0) {
                 // UPDATE
+                const dbRow = rows[0];
+                let oldDocs: Record<string, string> = {};
+
                 if (table === 'users') {
-                    // Merge existing columns with newItem
-                    const dbUser = rows[0];
+                    const dbUser = dbRow;
                     const existingUser: any = {
                         id: dbUser.id,
                         email: dbUser.email,
@@ -181,6 +201,16 @@ export const createOrUpdate = async (req: Request, res: Response) => {
                     };
 
                     finalData = { ...existingUser, ...newItem };
+                    oldDocs = existingUser.kycDocuments || {};
+                    const newDocs = finalData.kycDocuments || {};
+
+                    // Cleanup removed KYC documents
+                    Object.values(oldDocs).forEach(url => {
+                        if (typeof url === 'string' && !Object.values(newDocs).includes(url)) {
+                            deleteFileByUrl(url);
+                        }
+                    });
+
                     const currentHash = passwordHash || dbUser.password_hash;
 
                     await conn.execute(
@@ -212,8 +242,18 @@ export const createOrUpdate = async (req: Request, res: Response) => {
                         ]
                     );
                 } else {
-                    const existing = safeParse(rows[0].data);
+                    const existing = safeParse(dbRow.data);
                     finalData = { ...existing, ...newItem };
+                    oldDocs = existing.documents || {};
+                    const newDocs = finalData.documents || {};
+
+                    // Cleanup removed documents
+                    Object.values(oldDocs).forEach(url => {
+                        if (typeof url === 'string' && !Object.values(newDocs).includes(url)) {
+                            deleteFileByUrl(url);
+                        }
+                    });
+
                     await conn.execute(
                         `UPDATE \`${table}\` SET data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
                         [JSON.stringify(finalData), newItem.id]
@@ -278,6 +318,23 @@ export const deleteItem = async (req: Request, res: Response) => {
     if (!isValidTable(table)) return res.status(404).json({ error: "Not Found" });
 
     try {
+        // Fetch before deletion to cleanup files
+        const selectQuery = (table === 'users')
+            ? `SELECT * FROM \`${table}\` WHERE id = ?`
+            : `SELECT data FROM \`${table}\` WHERE id = ?`;
+        const [rows] = await pool.execute<RowDataPacket[]>(selectQuery, [id]);
+
+        if (rows.length > 0) {
+            const row = rows[0];
+            let docs: Record<string, string> = {};
+            if (table === 'users') {
+                docs = row.kyc_documents ? (typeof row.kyc_documents === 'string' ? safeParse(row.kyc_documents) : row.kyc_documents) : {};
+            } else {
+                docs = safeParse(row.data).documents || {};
+            }
+            Object.values(docs).forEach(url => deleteFileByUrl(url));
+        }
+
         await pool.execute(`DELETE FROM \`${table}\` WHERE id = ?`, [id]);
 
         // Cascading Sync: If intelligence record is deleted, remove payout log too
