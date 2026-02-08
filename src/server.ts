@@ -9,10 +9,10 @@ import authRoutes from './routes/authRoutes.js';
 import crudRoutes from './routes/crudRoutes.js';
 
 process.on('uncaughtException', (err) => {
-    console.error('UNCAUGHT EXCEPTION:', err);
+    log.error('UNCAUGHT EXCEPTION:', err);
 });
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('UNHANDLED REJECTION at:', promise, 'reason:', reason);
+    log.error('UNHANDLED REJECTION:', reason);
 });
 
 const __filename = fileURLToPath(import.meta.url);
