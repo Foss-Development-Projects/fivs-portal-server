@@ -7,6 +7,7 @@ import { log } from './utils/logger.js';
 import { initDb, getPool } from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
 import crudRoutes from './routes/crudRoutes.js';
+import extractRoutes from './routes/extractRoutes.js';
 
 process.on('uncaughtException', (err) => {
     console.error('UNCAUGHT EXCEPTION:', err);

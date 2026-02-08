@@ -27,16 +27,38 @@ const deleteFileByUrl = (url: string) => {
     if (!url || typeof url !== 'string' || !url.startsWith('/api/uploads/')) return;
 
     // Resolve relative path to absolute filesystem path
-    const filename = url.replace('/api/uploads/', '');
-    const fullPath = path.join(process.cwd(), 'uploads', filename);
+    // Handles /api/uploads/, /api/uploads/docs/, /api/uploads/img/
+    const relativePath = url.replace('/api/uploads/', '');
+    const fullPath = path.join(process.cwd(), 'uploads', relativePath);
 
-    fs.unlink(fullPath, (err) => {
-        if (err) {
-            console.error(`[Cleanup] Failed to delete file: ${fullPath}`, err.message);
-        } else {
-            console.log(`[Cleanup] Successfully deleted: ${filename}`);
+    if (fs.existsSync(fullPath)) {
+        fs.unlink(fullPath, (err) => {
+            if (err) {
+                console.error(`[Cleanup] Failed to delete file: ${fullPath}`, err.message);
+            } else {
+                console.log(`[Cleanup] Successfully deleted: ${relativePath}`);
+            }
+        });
+    }
+};
+
+/**
+ * Recursively find all strings matching the upload URL pattern in any object/array
+ */
+const findAllUploadUrls = (obj: any, urls: Set<string> = new Set()): string[] => {
+    if (!obj) return Array.from(urls);
+
+    if (typeof obj === 'string') {
+        if (obj.startsWith('/api/uploads/')) {
+            urls.add(obj);
         }
-    });
+    } else if (Array.isArray(obj)) {
+        obj.forEach(item => findAllUploadUrls(item, urls));
+    } else if (typeof obj === 'object') {
+        Object.values(obj).forEach(val => findAllUploadUrls(val, urls));
+    }
+
+    return Array.from(urls);
 };
 
 // GET List
@@ -253,13 +275,14 @@ export const createOrUpdate = async (req: Request, res: Response) => {
                     );
                 } else {
                     const existing = safeParse(dbRow.data);
-                    finalData = { ...existing, ...newItem };
-                    oldDocs = existing.documents || {};
-                    const newDocs = finalData.documents || {};
 
-                    // Cleanup removed documents
-                    Object.values(oldDocs).forEach(url => {
-                        if (typeof url === 'string' && !Object.values(newDocs).includes(url)) {
+                    // Cleanup replaced files: Find urls in old but not in new
+                    const oldUrls = findAllUploadUrls(existing);
+                    finalData = { ...existing, ...newItem };
+                    const newUrls = findAllUploadUrls(finalData);
+
+                    oldUrls.forEach(url => {
+                        if (!newUrls.includes(url)) {
                             deleteFileByUrl(url);
                         }
                     });
@@ -336,13 +359,9 @@ export const deleteItem = async (req: Request, res: Response) => {
 
         if (rows.length > 0) {
             const row = rows[0];
-            let docs: Record<string, string> = {};
-            if (table === 'users') {
-                docs = row.kyc_documents ? (typeof row.kyc_documents === 'string' ? safeParse(row.kyc_documents) : row.kyc_documents) : {};
-            } else {
-                docs = safeParse(row.data).documents || {};
-            }
-            Object.values(docs).forEach(url => deleteFileByUrl(url));
+            const dataToScan = (table === 'users') ? row : safeParse(row.data);
+            const urls = findAllUploadUrls(dataToScan);
+            urls.forEach(url => deleteFileByUrl(url));
         }
 
         await pool.execute(`DELETE FROM \`${table}\` WHERE id = ?`, [id]);
