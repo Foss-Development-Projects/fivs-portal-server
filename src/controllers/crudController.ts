@@ -332,6 +332,15 @@ export const createOrUpdate = async (req: Request, res: Response) => {
             }
 
             await conn.commit();
+
+            // Append compression logs if available
+            if ((req as any).compressionLogs) {
+                console.log(`[CRUD] Attaching compression logs to response:`, (req as any).compressionLogs);
+                (finalData as any)._compressionLogs = (req as any).compressionLogs;
+            } else {
+                console.log(`[CRUD] No compression logs found in request.`);
+            }
+
             res.json(finalData);
         } catch (err) {
             await conn.rollback();
