@@ -23,22 +23,28 @@ const safeParse = (str: string, fallback: any = {}) => {
     }
 };
 
-const deleteFileByUrl = (url: string) => {
-    if (!url || typeof url !== 'string' || !url.startsWith('/api/uploads/')) return;
+const deleteFileByUrl = async (url: string) => {
+    if (!url || typeof url !== 'string') return;
 
-    // Resolve relative path to absolute filesystem path
-    // Handles /api/uploads/, /api/uploads/docs/, /api/uploads/img/
-    const relativePath = url.replace('/api/uploads/', '');
-    const fullPath = path.join(process.cwd(), 'uploads', relativePath);
+    if (url.startsWith('/api/uploads/')) {
+        // Resolve relative path to absolute filesystem path
+        const relativePath = url.replace('/api/uploads/', '');
+        const fullPath = path.join(process.cwd(), 'uploads', relativePath);
 
-    if (fs.existsSync(fullPath)) {
-        fs.unlink(fullPath, (err) => {
-            if (err) {
-                console.error(`[Cleanup] Failed to delete file: ${fullPath}`, err.message);
-            } else {
-                console.log(`[Cleanup] Successfully deleted: ${relativePath}`);
-            }
-        });
+        console.log(`[Cleanup] Attempting to delete: ${url}`);
+        console.log(`[Cleanup] Resolved full path: ${fullPath}`);
+
+        if (fs.existsSync(fullPath)) {
+            fs.unlink(fullPath, (err) => {
+                if (err) {
+                    console.error(`[Cleanup] Failed to delete file: ${fullPath}`, err.message);
+                } else {
+                    console.log(`[Cleanup] Successfully deleted local: ${relativePath}`);
+                }
+            });
+        } else {
+            console.warn(`[Cleanup] File not found at path: ${fullPath}`);
+        }
     }
 };
 
@@ -155,20 +161,20 @@ export const createOrUpdate = async (req: Request, res: Response) => {
             newItem = safeParse(req.body.data || '{}');
             newItem.documents = newItem.documents || {};
 
-            (req.files as Express.Multer.File[]).forEach(file => {
+            const uploadPromises = (req.files as Express.Multer.File[]).map(async (file) => {
                 const docField = file.fieldname.replace('doc_', '');
-                const ext = path.extname(file.filename).toLowerCase();
-                const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif', '.bmp'];
 
-                let prefix = '/api/uploads/';
-                if (ext === '.pdf') {
-                    prefix = '/api/uploads/docs/';
-                } else if (imageExtensions.includes(ext)) {
-                    prefix = '/api/uploads/img/';
-                }
+                // Construct URL based on where the file was actually saved
+                // file.path is absolute, we need relative to 'uploads' dir
+                const relativePath = path.relative(path.join(process.cwd(), 'uploads'), file.path);
+                // Ensure forward slashes for URL
+                const urlPath = relativePath.split(path.sep).join('/');
 
-                newItem.documents[docField] = `${prefix}${file.filename}`;
+                newItem.documents[docField] = `/api/uploads/${urlPath}`;
+                console.log(`[Local Upload] Saved to: ${newItem.documents[docField]}`);
             });
+
+            await Promise.all(uploadPromises);
         } else {
             // Handle Multipart (FormData) without files
             if (req.body.data && typeof req.body.data === 'string') {
@@ -236,10 +242,10 @@ export const createOrUpdate = async (req: Request, res: Response) => {
                     oldDocs = existingUser.kycDocuments || {};
                     const newDocs = finalData.kycDocuments || {};
 
-                    // Cleanup removed KYC documents
-                    Object.values(oldDocs).forEach(url => {
+                    // Cleanup removed KYC documents (Non-blocking background task)
+                    Object.values(oldDocs).forEach(async (url) => {
                         if (typeof url === 'string' && !Object.values(newDocs).includes(url)) {
-                            deleteFileByUrl(url);
+                            deleteFileByUrl(url).catch(err => console.error(`[Background Cleanup] Failed:`, err.message));
                         }
                     });
 
@@ -281,9 +287,10 @@ export const createOrUpdate = async (req: Request, res: Response) => {
                     finalData = { ...existing, ...newItem };
                     const newUrls = findAllUploadUrls(finalData);
 
-                    oldUrls.forEach(url => {
+                    // Cleanup replaced files (Non-blocking background task)
+                    oldUrls.forEach(async (url) => {
                         if (!newUrls.includes(url)) {
-                            deleteFileByUrl(url);
+                            deleteFileByUrl(url).catch(err => console.error(`[Background Cleanup] Failed:`, err.message));
                         }
                     });
 
@@ -370,7 +377,8 @@ export const deleteItem = async (req: Request, res: Response) => {
             const row = rows[0];
             const dataToScan = (table === 'users') ? row : safeParse(row.data);
             const urls = findAllUploadUrls(dataToScan);
-            urls.forEach(url => deleteFileByUrl(url));
+            // Non-blocking background cleanup
+            urls.forEach(url => deleteFileByUrl(url).catch(err => console.error(`[Background Cleanup] Failed:`, err.message)));
         }
 
         await pool.execute(`DELETE FROM \`${table}\` WHERE id = ?`, [id]);
