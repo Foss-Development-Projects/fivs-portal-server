@@ -14,7 +14,11 @@ declare global {
 // DB Guard Middleware
 export const dbGuard = (req: Request, res: Response, next: NextFunction) => {
     if (!isDbReady) {
-        return res.status(503).json({ error: "Database initializing", message: dbError || "Connecting..." });
+        return res.status(503).json({
+            error: "Database initializing",
+            message: "The server is currently establishing a database connection. Please try again in a moment.",
+            details: dbError || "Connecting..."
+        });
     }
     next();
 };

@@ -24,10 +24,12 @@ export const getPool = () => pool;
 
 export async function initDb() {
     try {
-        log.db('Connecting...');
+        log.db('Connecting to Database...');
+        log.info(`DB Config: Host=${dbConfig.host}, User=${dbConfig.user}, DB=${dbConfig.database}, Socket=${dbConfig.socketPath}`);
+        
         pool = mysql.createPool(dbConfig);
         const conn = await pool.getConnection();
-        log.success('Connected to Database.');
+        log.success('Connected to Database successfully.');
         conn.release();
 
         const collections = [

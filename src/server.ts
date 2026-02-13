@@ -21,12 +21,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 // Enhanced CORS for development and cross-origin usage
-app.use(cors({
-    origin: ['http://localhost:5173', 'https://fivs.netlify.app', 'https://fivs-server.netlify.app'],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Auth-Token'],
-    credentials: true
-}));
+app.use(cors());
 
 // Global Request Logger
 app.use((req, res, next) => {
