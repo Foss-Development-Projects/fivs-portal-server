@@ -39,7 +39,10 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
 
     try {
         const [rows] = await pool.execute<RowDataPacket[]>(
-            "SELECT * FROM users WHERE session_token = ?",
+            `SELECT u.*, s.token as current_token, s.expiry as session_expiry 
+             FROM user_sessions s
+             JOIN users u ON s.user_id = u.id
+             WHERE s.token = ?`,
             [token]
         );
 
@@ -66,12 +69,14 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
             accountHolder: dbUser.account_holder,
             leadSubmissionEnabled: !!dbUser.lead_submission_enabled,
             category: dbUser.category,
-            session_token: dbUser.session_token,
+            session_token: dbUser.current_token,
             session_expiry: dbUser.session_expiry
         };
         const now = Math.floor(Date.now() / 1000);
 
         if (userData.session_expiry && userData.session_expiry < now) {
+            // Clean up expired session from DB
+            await pool.execute("DELETE FROM user_sessions WHERE token = ?", [token]);
             return res.status(401).json({ error: "Session Expired" });
         }
 
@@ -81,8 +86,8 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
         const newExpiry = now + timeoutSeconds;
 
         await pool.execute(
-            "UPDATE users SET session_expiry = ? WHERE id = ?",
-            [newExpiry, userData.id]
+            "UPDATE user_sessions SET expiry = ? WHERE token = ?",
+            [newExpiry, token]
         );
 
         req.user = userData;

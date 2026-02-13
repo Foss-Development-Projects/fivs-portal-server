@@ -10,6 +10,9 @@ router.post('/login', dbGuard, authController.login);
 // Register
 router.post('/register', dbGuard, authController.register);
 
+// Logout
+router.get('/logout', authMiddleware, authController.logout);
+
 // Auth Status (Heartbeat)
 router.get('/status', authMiddleware, authController.authStatus);
 

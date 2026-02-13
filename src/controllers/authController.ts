@@ -76,12 +76,12 @@ export const login = async (req: Request, res: Response) => {
                 const timeoutSeconds = (role === 'admin') ? 3600 : 600;
                 const expiry = Math.floor(Date.now() / 1000) + timeoutSeconds;
 
-                user.session_token = token;
-                user.session_expiry = expiry;
+                // user.session_token = token; // No longer needed on user object
+                // user.session_expiry = expiry;
 
                 await pool.execute(
-                    "UPDATE users SET session_token = ?, session_expiry = ? WHERE id = ?",
-                    [token, expiry, user.id]
+                    "INSERT INTO user_sessions (token, user_id, expiry) VALUES (?, ?, ?)",
+                    [token, user.id, expiry]
                 );
 
                 delete user.password;
@@ -138,6 +138,19 @@ export const register = async (req: Request, res: Response) => {
         log.error("Registration Failed:", err);
         res.status(500).json({ error: err.message });
     }
+};
+
+// Logout Logic
+export const logout = async (req: Request, res: Response) => {
+    const token = req.user?.session_token;
+    if (token) {
+        try {
+            await pool.execute("DELETE FROM user_sessions WHERE token = ?", [token]);
+        } catch (err) {
+            log.error("Logout DB Error:", err);
+        }
+    }
+    res.json({ success: true });
 };
 
 // Auth Status Logic

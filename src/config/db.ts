@@ -26,7 +26,7 @@ export async function initDb() {
     try {
         log.db('Connecting to Database...');
         log.info(`DB Config: Host=${dbConfig.host}, User=${dbConfig.user}, DB=${dbConfig.database}, Socket=${dbConfig.socketPath}`);
-        
+
         pool = mysql.createPool(dbConfig);
         const conn = await pool.getConnection();
         log.success('Connected to Database successfully.');
@@ -35,7 +35,7 @@ export async function initDb() {
         const collections = [
             'users', 'leads', 'transactions', 'tickets', 'banners',
             'notifications', 'autofetch_records', 'admin_payout_records',
-            'payout_reports', 'profit_reports'
+            'payout_reports', 'profit_reports', 'user_sessions'
         ];
 
         for (const table of collections) {
@@ -112,6 +112,24 @@ export async function initDb() {
                     // Ignore if duplicate key name
                 }
 
+            } else if (table === 'user_sessions') {
+                // Self-healing: check if 'token' column exists, if not, drop and recreate
+                const [cols] = await pool.execute<RowDataPacket[]>("SHOW COLUMNS FROM `user_sessions` LIKE 'token'");
+                if (cols.length === 0) {
+                    log.info("Incorrect schema for user_sessions detected. Dropping and recreating...");
+                    await pool.execute("DROP TABLE IF EXISTS `user_sessions`");
+                }
+
+                await pool.execute(`
+                    CREATE TABLE IF NOT EXISTS \`user_sessions\` (
+                        token VARCHAR(255) PRIMARY KEY,
+                        user_id VARCHAR(128) NOT NULL,
+                        expiry BIGINT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        INDEX idx_user_id (user_id),
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                `);
             } else {
                 await pool.execute(`
                     CREATE TABLE IF NOT EXISTS \`${table}\` (
